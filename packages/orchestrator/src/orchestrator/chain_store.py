@@ -304,7 +304,7 @@ class ChainEventStore:
         chain_id = chain_proposal_id
         tx_hash = None
 
-        if self._online and chain_id is None and bounty_wei > 0:
+        if self._online and chain_id is None:
             try:
                 desc_bytes = bytes.fromhex(desc_hash[2:])
                 fn = self._contract().functions.createProposal(desc_bytes, max_roles, deadline)
