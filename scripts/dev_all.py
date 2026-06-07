@@ -49,10 +49,13 @@ NODE_ENDPOINT = args.endpoint or (f"http://localhost:{PORT}" if not AGENTS_ONLY 
 BOOTSTRAP_NODES = args.bootstrap or os.environ.get("BOOTSTRAP_NODES", "")
 
 # ── 0. Env defaults ───────────────────────────────────────────────────────────
-# DATABASE_URL is kept from .env (or set here for query track only).
-# The proposal track uses ChainEventStore (no SQLite) so we only set DATABASE_URL
-# if it hasn't been supplied by the loaded .env above.
-os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///./dev_{PORT}.db")
+# Always force SQLite for the query track — dev_all.py is a single-process dev/demo
+# runner. Production postgres users should not use this script as the start command.
+# Forcing (not setdefault) ensures any pre-existing DATABASE_URL env var (e.g. from
+# a Render addon or CI) doesn't accidentally trigger asyncpg which may not be installed.
+_current_db = os.environ.get("DATABASE_URL", "")
+if not _current_db.startswith("sqlite"):
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///./dev_{PORT}.db"
 os.environ["REDIS_URL"] = "redis://localhost:6379"
 os.environ.setdefault("ORCHESTRATOR_HOST", "0.0.0.0")
 os.environ["ORCHESTRATOR_PORT"] = str(PORT)

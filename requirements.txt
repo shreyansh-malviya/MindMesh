@@ -4,9 +4,10 @@ uvicorn[standard]>=0.34.0
 python-multipart>=0.0.20
 websockets>=14.0
 
-# ── Database (query track uses SQLite) ────────────────────────────────────────
+# ── Database ───────────────────────────────────────────────────────────────────
 sqlalchemy[asyncio]>=2.0.0
-aiosqlite>=0.20.0
+aiosqlite>=0.20.0          # SQLite async driver (used by default / on Render)
+asyncpg>=0.30.0            # PostgreSQL async driver (optional, for production postgres)
 alembic>=1.14.0
 
 # ── Redis / pub-sub ───────────────────────────────────────────────────────────

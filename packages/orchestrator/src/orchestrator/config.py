@@ -30,8 +30,8 @@ class Settings(BaseSettings):
 
     # ── Database ───────────────────────────────────────────────────────────
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/monadblitz",
-        description="Async SQLAlchemy database URL",
+        default="sqlite+aiosqlite:///./dev_8000.db",
+        description="Async SQLAlchemy database URL (SQLite by default; set to postgres:// for production)",
     )
 
     # ── Redis ──────────────────────────────────────────────────────────────
