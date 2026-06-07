@@ -607,6 +607,47 @@ textarea.input { resize: vertical; min-height: 96px; line-height: 1.55; }
   font-family: var(--sans) !important;
 }
 
+/* ─── Bot arena animations ──────────────────────────────────────────── */
+@keyframes eyeMove {
+  0%   { transform: translateX(-3px); }
+  50%  { transform: translateX(3px);  }
+  100% { transform: translateX(-3px); }
+}
+@keyframes eyePulse {
+  0%   { transform: scale(0.8); opacity: 0.7; }
+  100% { transform: scale(1.2); opacity: 1;   }
+}
+@keyframes eyeBlink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  95%           { transform: scaleY(0.1); }
+}
+@keyframes mouthSpeak {
+  0%   { height: 4px;  }
+  100% { height: 10px; }
+}
+@keyframes thinkDot {
+  0%, 100% { transform: translateY(0);    opacity: 0.4; }
+  50%       { transform: translateY(-4px); opacity: 1;   }
+}
+@keyframes antennaPulse {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%       { transform: scale(1.4); opacity: 0.7; }
+}
+@keyframes speakerPulse {
+  0%   { transform: scaleX(0.7); opacity: 0.6; }
+  100% { transform: scaleX(1.2); opacity: 1;   }
+}
+@keyframes scanLine {
+  0%   { top: 0%;   opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+@keyframes textGlow {
+  0%   { opacity: 0.7; }
+  100% { opacity: 1;   }
+}
+
 /* ─── Markdown renderer ─────────────────────────────────────────────── */
 .md-body { font-size: 13px; line-height: 1.7; color: var(--text-1); }
 .md-body .md-p { margin: 0 0 10px; }

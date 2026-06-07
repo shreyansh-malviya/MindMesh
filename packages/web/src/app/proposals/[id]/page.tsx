@@ -16,6 +16,7 @@ import {
   explorerTx,
 } from "@/lib/api";
 import { Markdown } from "@/lib/Markdown";
+import { BotArena } from "@/components/BotArena";
 
 const BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -670,16 +671,9 @@ export default function ProposalDetailPage({ params }: { params: { id: string } 
 
   const isTerminal = ["SETTLED", "FAILED"].includes(proposal.status);
 
-  return (
-    <div style={{ padding: "24px 20px", maxWidth: 780, margin: "0 auto" }}>
-      {/* Back */}
-      <Link
-        href="/proposals"
-        style={{ fontSize: "12px", color: "var(--text-2)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 20 }}
-      >
-        ← Proposals
-      </Link>
-
+  /* Left column — pipeline, chain info, discussion, report */
+  const leftCol = (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0 }}>
       {/* Header */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
@@ -691,8 +685,6 @@ export default function ProposalDetailPage({ params }: { params: { id: string } 
         <div style={{ fontSize: "12px", color: "var(--text-2)", marginBottom: 10, lineHeight: 1.6 }}>
           {proposal.description}
         </div>
-
-        {/* Meta row */}
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: "11px", color: "var(--text-3)" }}>
           <span>{shortId(proposal.id)}</span>
           <span>Max {proposal.max_roles} roles</span>
@@ -703,16 +695,7 @@ export default function ProposalDetailPage({ params }: { params: { id: string } 
           <span>{timeAgo(proposal.created_at)}</span>
           {!isTerminal && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "var(--green)",
-                  animation: "pulse 1.4s infinite",
-                  display: "inline-block",
-                }}
-              />
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", animation: "pulse 1.4s infinite", display: "inline-block" }} />
               live
             </span>
           )}
@@ -720,15 +703,7 @@ export default function ProposalDetailPage({ params }: { params: { id: string } 
       </div>
 
       {/* Pipeline */}
-      <div
-        style={{
-          padding: "12px 16px",
-          background: "var(--bg-subtle)",
-          borderRadius: "var(--radius)",
-          marginBottom: 16,
-          overflowX: "auto",
-        }}
-      >
+      <div style={{ padding: "12px 16px", background: "var(--bg-subtle)", borderRadius: "var(--radius)", marginBottom: 16, overflowX: "auto" }}>
         <Pipeline status={proposal.status} />
         {proposal.status === "FAILED" && (
           <div style={{ fontSize: "11px", color: "var(--red)", marginTop: 8 }}>
@@ -740,7 +715,7 @@ export default function ProposalDetailPage({ params }: { params: { id: string } 
       {/* Chain info */}
       <ChainInfo proposal={proposal} />
 
-      {/* Final report (top for settled) */}
+      {/* Final report (settled) */}
       {proposal.status === "SETTLED" && <FinalReport proposal={proposal} />}
 
       {/* Team */}
@@ -751,24 +726,39 @@ export default function ProposalDetailPage({ params }: { params: { id: string } 
         <DiscussionSection messages={proposal.messages} status={proposal.status} />
       ) : (
         !["CREATED", "FAILED"].includes(proposal.status) && (
-          <div
-            style={{
-              padding: "20px",
-              border: "1px dashed var(--border)",
-              borderRadius: "var(--radius)",
-              textAlign: "center",
-              fontSize: "12px",
-              color: "var(--text-3)",
-              marginBottom: 16,
-            }}
-          >
+          <div style={{ padding: "20px", border: "1px dashed var(--border)", borderRadius: "var(--radius)", textAlign: "center", fontSize: "12px", color: "var(--text-3)", marginBottom: 16 }}>
             Discussion will begin once the team is formed
           </div>
         )
       )}
 
-      {/* Synthesizing state */}
+      {/* Synthesizing */}
       {proposal.status === "SYNTHESIZING" && <FinalReport proposal={proposal} />}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "24px 20px", maxWidth: 1200, margin: "0 auto" }}>
+      {/* Back */}
+      <Link href="/proposals" style={{ fontSize: "12px", color: "var(--text-2)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, marginBottom: 20 }}>
+        ← Proposals
+      </Link>
+
+      {/* Two-column layout */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 340px",
+        gap: 24,
+        alignItems: "start",
+      }}>
+        {/* Left — detail */}
+        {leftCol}
+
+        {/* Right — bot arena (sticky) */}
+        <div style={{ position: "sticky", top: 80 }}>
+          <BotArena proposal={proposal} />
+        </div>
+      </div>
     </div>
   );
 }
