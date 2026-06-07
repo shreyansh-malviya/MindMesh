@@ -52,23 +52,36 @@ class BaseAgent(ABC):
         redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         pubsub = redis_client.pubsub()
 
-        channels = ["queries:all"] + [f"queries:{cap}" for cap in self.capabilities]
+        channels = (
+            ["queries:all", "sub_queries:broadcast"]
+            + [f"queries:{cap}" for cap in self.capabilities]
+        )
         await pubsub.subscribe(*channels)
-        self.logger.info(f"[{self.name}] Subscribed to: {channels}")
+        # Use psubscribe for dynamic peer_review channels (peer_review:<query_id>)
+        await pubsub.psubscribe("peer_review:*")
+        self.logger.info(f"[{self.name}] Subscribed to: {channels} + peer_review:*")
 
         async for message in pubsub.listen():
             if not self._running:
                 break
-            if message["type"] == "message":
-                try:
-                    data = json.loads(message["data"])
-                    await self._handle_query(data)
-                except json.JSONDecodeError:
-                    pass
-                except Exception as e:
-                    self.logger.error(
-                        f"[{self.name}] Error handling query: {e}", exc_info=True
-                    )
+            msg_type = message.get("type", "")
+            if msg_type not in ("message", "pmessage"):
+                continue
+            try:
+                data = json.loads(message["data"])
+                channel = message.get("channel", "") or message.get("pattern", "")
+                if channel == "sub_queries:broadcast":
+                    asyncio.create_task(self._handle_sub_query(data))
+                elif isinstance(channel, str) and channel.startswith("peer_review:"):
+                    asyncio.create_task(self._handle_peer_review_request(data))
+                else:
+                    asyncio.create_task(self._handle_query(data))
+            except json.JSONDecodeError:
+                pass
+            except Exception as e:
+                self.logger.error(
+                    f"[{self.name}] Error handling message: {e}", exc_info=True
+                )
 
         await redis_client.aclose()
 
@@ -208,6 +221,147 @@ class BaseAgent(ABC):
                         )
         except Exception as e:
             self.logger.error(f"[{self.name}] Submit error: {e}")
+
+    # ── Sub-query: request help from other agents ─────────────────────────────
+
+    async def request_sub_query(
+        self,
+        parent_query_id: str,
+        sub_problem: str,
+        capabilities: list[str] | None = None,
+    ) -> str:
+        """
+        Ask other agents to help with a sub-problem.
+        Returns the best answer within ~8s, or empty string on timeout.
+        """
+        payload = {
+            "requester_address": self.address,
+            "sub_problem": sub_problem,
+            "capabilities": capabilities or self.capabilities,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{settings.ORCHESTRATOR_BASE_URL}/api/queries/{parent_query_id}/sub-query",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        answer = data.get("answer", "")
+                        by = data.get("answered_by", "unknown")
+                        if answer:
+                            self.logger.info(
+                                f"[{self.name}] Sub-query answered by {by[:10]}..."
+                            )
+                        return answer
+        except Exception as e:
+            self.logger.debug(f"[{self.name}] Sub-query failed: {e}")
+        return ""
+
+    async def _handle_sub_query(self, data: dict) -> None:
+        """Handle an incoming sub-query from another agent."""
+        sub_id = data.get("sub_id")
+        parent_query_id = data.get("parent_query_id")
+        requester = data.get("requester_address", "")
+        sub_problem = data.get("sub_problem", "")
+        caps = data.get("capabilities", [])
+
+        # Skip if we are the requester or don't have required capabilities
+        if requester == self.address:
+            return
+        if caps and not any(c in self.capabilities for c in caps):
+            return
+
+        self.logger.info(
+            f"[{self.name}] Sub-query from {requester[:10]}...: {sub_problem[:60]}"
+        )
+
+        try:
+            result = await asyncio.wait_for(
+                self.generate_response(sub_problem, "", 1),
+                timeout=min(settings.RESPONSE_TIMEOUT, 8),
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            self.logger.debug(f"[{self.name}] Sub-query response error: {e}")
+            return
+
+        answer = result.get("answer", "")
+        confidence = float(result.get("confidence", 0.5))
+
+        if not answer:
+            return
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.post(
+                    f"{settings.ORCHESTRATOR_BASE_URL}/api/queries/"
+                    f"{parent_query_id}/sub-query/{sub_id}/respond",
+                    json={
+                        "agent_address": self.address,
+                        "answer": answer,
+                        "confidence": confidence,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+        except Exception as e:
+            self.logger.debug(f"[{self.name}] Sub-query respond error: {e}")
+
+    # ── Peer review: score other agents' responses ─────────────────────────────
+
+    async def _handle_peer_review_request(self, data: dict) -> None:
+        """Receive a broadcast of responses and submit peer scores."""
+        query_id = data.get("query_id")
+        round_num = data.get("round", 1)
+        responses = data.get("responses", [])
+
+        if not query_id or not responses:
+            return
+
+        # Don't review if we only have our own response in the list
+        others = [r for r in responses if r.get("agent_address") != self.address]
+        if not others:
+            return
+
+        self.logger.info(
+            f"[{self.name}] Peer review: scoring {len(others)} response(s) for #{query_id[:8]}"
+        )
+
+        try:
+            reviews = await asyncio.wait_for(
+                self.peer_review_responses(query_id, others),
+                timeout=min(settings.RESPONSE_TIMEOUT, 15),
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            self.logger.warning(f"[{self.name}] Peer review failed: {e}")
+            return
+
+        if not reviews:
+            return
+
+        payload = {"reviewer_address": self.address, "reviews": reviews}
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.post(
+                    f"{settings.ORCHESTRATOR_BASE_URL}/api/queries/{query_id}/peer-review",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                self.logger.info(
+                    f"[{self.name}] Submitted {len(reviews)} peer review(s) for #{query_id[:8]}"
+                )
+        except Exception as e:
+            self.logger.debug(f"[{self.name}] Peer review submit failed: {e}")
+
+    async def peer_review_responses(
+        self, query_id: str, responses: list[dict]
+    ) -> list[dict]:
+        """
+        Score other agents' responses. Override in subclasses.
+        Must return: [{"response_id": str, "score": float, "reasoning": str}]
+        Default: no-op (skips peer review for this agent).
+        """
+        return []
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

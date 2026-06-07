@@ -35,6 +35,40 @@ class GammaAgent(BaseAgent):
             self._client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         return self._client
 
+    async def peer_review_responses(
+        self, query_id: str, responses: list[dict]
+    ) -> list[dict]:
+        """
+        Heuristic peer scoring: length + structure + confidence calibration.
+        Fast, no LLM call needed.
+        """
+        reviews = []
+        for r in responses:
+            text = r.get("response_text", "")
+            confidence = float(r.get("confidence", 0.5))
+
+            # Heuristic scoring
+            length_score = min(1.0, len(text) / 400)      # longer tends to be better
+            structure_score = 0.6 + 0.2 * (1 if "\n" in text else 0)  # has structure
+            # Penalise overconfidence (>0.9) and underconfidence (<0.3)
+            conf_penalty = 0.0
+            if confidence > 0.9 or confidence < 0.3:
+                conf_penalty = 0.1
+
+            score = round(
+                max(0.1, min(0.95, 0.5 * length_score + 0.5 * structure_score - conf_penalty)),
+                3,
+            )
+
+            reviews.append({
+                "response_id": r["response_id"],
+                "score": score,
+                "reasoning": f"Heuristic: length={len(text)}, structure={'yes' if chr(10) in text else 'no'}, conf={confidence:.2f}",
+            })
+
+        logger.info(f"[Gamma] Peer review: scored {len(reviews)} responses (heuristic)")
+        return reviews
+
     async def generate_response(
         self, problem: str, memory_context: str, round_num: int
     ) -> dict:

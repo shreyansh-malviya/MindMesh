@@ -101,13 +101,14 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* ─── Status classes ─────────────────────────────────────────────────── */
-.s-settled    { color: var(--green);  background: var(--green-dim);  }
-.s-created    { color: var(--text-2); background: var(--bg-muted);   }
-.s-routing    { color: var(--text-2); background: var(--bg-muted);   }
-.s-collecting { color: var(--blue);   background: var(--blue-dim);   }
-.s-scoring    { color: var(--amber);  background: var(--amber-dim);  }
-.s-escalating { color: var(--amber);  background: var(--amber-dim);  }
-.s-failed     { color: var(--red);    background: var(--red-dim);    }
+.s-settled     { color: var(--green);  background: var(--green-dim);  }
+.s-created     { color: var(--text-2); background: var(--bg-muted);   }
+.s-routing     { color: var(--text-2); background: var(--bg-muted);   }
+.s-collecting  { color: var(--blue);   background: var(--blue-dim);   }
+.s-peer-review { color: var(--accent); background: var(--accent-dim); }
+.s-scoring     { color: var(--amber);  background: var(--amber-dim);  }
+.s-escalating  { color: var(--amber);  background: var(--amber-dim);  }
+.s-failed      { color: var(--red);    background: var(--red-dim);    }
 
 /* ─── Nav ────────────────────────────────────────────────────────────── */
 .nav {

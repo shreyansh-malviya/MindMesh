@@ -20,7 +20,7 @@ from .config import settings
 from .database import db_session
 from .judge import MetaLLMJudge
 from .memory_service import MemoryService
-from .models import Agent, Query, QueryStatus, Response
+from .models import Agent, PeerReview, Query, QueryStatus, Response
 from .query_router import QueryRouter
 from .websocket_manager import WebSocketManager
 
@@ -122,6 +122,10 @@ class QueryStateMachine:
             f"[ORCH] Collected {len(responses)} response(s) for query #{query_id[:8]}"
         )
 
+        # ── PEER REVIEW ──────────────────────────────────────────────────────
+        await self._transition(query_id, QueryStatus.PEER_REVIEW)
+        peer_scores = await self._collect_peer_reviews(query_id, query.round, responses)
+
         # ── SCORING ──────────────────────────────────────────────────────────
         await self._transition(query_id, QueryStatus.SCORING)
         memory_ctx = await self.memory.get_context_for_agent(query_id)
@@ -130,6 +134,17 @@ class QueryStateMachine:
         scores = await self.judge.score_responses(
             query.problem, responses, memory_ctx
         )
+
+        # Blend peer scores with judge scores (70% judge, 30% peer consensus)
+        for score in scores:
+            peer_avg = peer_scores.get(score.agent_address)
+            if peer_avg is not None:
+                blended = round(0.70 * score.score + 0.30 * peer_avg, 4)
+                await self._log(
+                    f"[PEER] {score.agent_address[:10]}... judge={score.score:.2f} "
+                    f"peer={peer_avg:.2f} → blended={blended:.2f}"
+                )
+                score.score = blended
 
         # Persist scores and add to memory
         async with db_session() as session:
@@ -260,11 +275,28 @@ class QueryStateMachine:
                     memory_hash=memory_hash,
                 )
             )
-            # Credit win to winner, loss to others
+            # Winner: reputation +200
             await session.execute(
                 update(Agent)
                 .where(Agent.address == best.agent_address)
                 .values(wins=Agent.wins + 1, reputation=Agent.reputation + 200)
+            )
+            # Losers: reputation −50 (floor 1), track losses
+            for resp in responses:
+                if resp.agent_address != best.agent_address:
+                    await session.execute(
+                        update(Agent)
+                        .where(Agent.address == resp.agent_address)
+                        .values(
+                            losses=Agent.losses + 1,
+                            reputation=Agent.reputation - 50,
+                        )
+                    )
+                    await self._log(
+                        f"[REP] {resp.agent_address[:10]}... −50 rep (loss)"
+                    )
+            await self._log(
+                f"[REP] {best.agent_address[:10]}... +200 rep (win)"
             )
 
         await self._transition(query_id, QueryStatus.SETTLED)
@@ -275,6 +307,100 @@ class QueryStateMachine:
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    async def _collect_peer_reviews(
+        self, query_id: str, round_num: int, responses: list
+    ) -> dict:
+        """
+        Broadcast responses to all agents for peer scoring.
+        Wait up to PEER_REVIEW_TIMEOUT seconds, then return
+        {agent_address -> avg_peer_score} for blending with judge scores.
+        """
+        PEER_REVIEW_TIMEOUT = 20
+
+        if not responses:
+            return {}
+
+        import json
+
+        response_payloads = [
+            {
+                "response_id": r.id,
+                "agent_address": r.agent_address,
+                "response_text": r.response_text,
+                "reasoning": r.reasoning,
+                "confidence": r.confidence,
+            }
+            for r in responses
+        ]
+
+        # Broadcast peer review request
+        try:
+            await self.redis.publish(
+                f"peer_review:{query_id}",
+                json.dumps({
+                    "query_id": query_id,
+                    "round": round_num,
+                    "responses": response_payloads,
+                }),
+            )
+            await self._log(
+                f"[PEER] Broadcast {len(responses)} responses for peer review "
+                f"(timeout={PEER_REVIEW_TIMEOUT}s)"
+            )
+        except Exception as e:
+            logger.warning(f"[PEER] Broadcast failed: {e}")
+            return {}
+
+        # Wait for peer reviews to arrive
+        await asyncio.sleep(PEER_REVIEW_TIMEOUT)
+
+        # Aggregate peer scores
+        from sqlalchemy import select
+        async with db_session() as session:
+            result = await session.execute(
+                select(PeerReview).where(
+                    PeerReview.query_id == query_id,
+                    PeerReview.round == round_num,
+                )
+            )
+            peer_reviews = result.scalars().all()
+
+        if not peer_reviews:
+            await self._log("[PEER] No peer reviews received")
+            return {}
+
+        # Map response_id → agent_address
+        resp_to_agent = {r.id: r.agent_address for r in responses}
+
+        # Aggregate: agent_address → list of peer scores
+        from collections import defaultdict
+        scores_by_agent: dict = defaultdict(list)
+        for pr in peer_reviews:
+            agent_addr = resp_to_agent.get(pr.response_id)
+            if agent_addr:
+                scores_by_agent[agent_addr].append(pr.peer_score)
+
+        avg_scores = {
+            addr: round(sum(ss) / len(ss), 4)
+            for addr, ss in scores_by_agent.items()
+            if ss
+        }
+
+        for addr, avg in avg_scores.items():
+            await self._log(f"[PEER] {addr[:10]}... avg peer score: {avg:.2f} ({len(scores_by_agent[addr])} review(s))")
+
+        await self.memory.add_event(
+            query_id,
+            "peer_review",
+            {
+                "round": round_num,
+                "reviews_received": len(peer_reviews),
+                "peer_scores": avg_scores,
+            },
+        )
+
+        return avg_scores
 
     async def _collect_responses(
         self, query_id: str, round_num: int, timeout: int

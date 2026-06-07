@@ -14,7 +14,7 @@ import {
 } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 
-const FILTERS = ["all", "routing", "collecting", "scoring", "escalating", "settled", "failed"];
+const FILTERS = ["all", "routing", "collecting", "peer_review", "scoring", "escalating", "settled", "failed"];
 
 /* ─── Score bar ───────────────────────────────────────────────────── */
 function ScoreBar({ score }: { score: number | null }) {

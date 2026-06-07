@@ -7,12 +7,12 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..database import get_db
-from ..models import Agent, Query, QueryStatus, Response, TaskMemory
+from ..models import Agent, PeerReview, Query, QueryStatus, Response, SubQuery, SubQueryResponse, TaskMemory
 
 router = APIRouter(prefix="/api/queries", tags=["queries"])
 
@@ -293,6 +293,177 @@ async def submit_response(
         "response_hash": response_hash,
         "round": q.round,
     }
+
+
+@router.post("/{query_id}/peer-review", status_code=201)
+async def submit_peer_review(
+    query_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Agent submits peer scores for other agents' responses.
+
+    Body: {
+        "reviewer_address": "0x...",
+        "reviews": [{"response_id": "...", "score": 0.85, "reasoning": "..."}]
+    }
+    """
+    q = await db.get(Query, query_id)
+    if not q:
+        raise HTTPException(status_code=404, detail="Query not found")
+
+    reviewer = body.get("reviewer_address", "")
+    reviews = body.get("reviews", [])
+
+    created = []
+    for rev in reviews:
+        response_id = rev.get("response_id")
+        score = float(rev.get("score", 0.5))
+        reasoning = rev.get("reasoning", "")
+
+        # Don't let agents review their own response
+        resp = await db.get(Response, response_id)
+        if not resp or resp.agent_address == reviewer:
+            continue
+
+        pr = PeerReview(
+            query_id=query_id,
+            round=q.round,
+            reviewer_address=reviewer,
+            response_id=response_id,
+            peer_score=max(0.0, min(1.0, score)),
+            reasoning=reasoning,
+        )
+        db.add(pr)
+        created.append(response_id)
+
+    await db.flush()
+    return {"status": "submitted", "reviews_saved": len(created)}
+
+
+class SubQueryRequest(BaseModel):
+    requester_address: str
+    sub_problem: str = Field(..., min_length=5, max_length=2000)
+    capabilities: list[str] = Field(default=["general"])
+
+
+@router.post("/{query_id}/sub-query")
+async def create_sub_query(
+    query_id: str,
+    body: SubQueryRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Agent requests help from other agents on a sub-problem.
+    Broadcasts to other agents via Redis and waits up to 8s for responses.
+    Returns the best answer received.
+    """
+    q = await db.get(Query, query_id)
+    if not q:
+        raise HTTPException(status_code=404, detail="Parent query not found")
+
+    sq = SubQuery(
+        parent_query_id=query_id,
+        requester_address=body.requester_address,
+        sub_problem=body.sub_problem,
+        capabilities=body.capabilities,
+        status="pending",
+    )
+    db.add(sq)
+    await db.flush()
+    await db.refresh(sq)
+    sub_id = sq.id
+    await db.commit()
+
+    # Broadcast to agents via Redis
+    import json
+    import redis.asyncio as aioredis
+    try:
+        redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        await redis_client.publish(
+            "sub_queries:broadcast",
+            json.dumps({
+                "sub_id": sub_id,
+                "parent_query_id": query_id,
+                "requester_address": body.requester_address,
+                "sub_problem": body.sub_problem,
+                "capabilities": body.capabilities,
+            }),
+        )
+        await redis_client.aclose()
+    except Exception:
+        pass
+
+    # Wait up to 8s for responses
+    deadline = asyncio.get_event_loop().time() + 8
+    best_answer = ""
+    best_agent = ""
+    best_confidence = 0.0
+
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(1.5)
+        result = await db.execute(
+            select(SubQueryResponse)
+            .where(SubQueryResponse.sub_query_id == sub_id)
+            .order_by(SubQueryResponse.confidence.desc())
+        )
+        sq_responses = result.scalars().all()
+
+        if sq_responses:
+            top = sq_responses[0]
+            if top.confidence >= best_confidence:
+                best_confidence = top.confidence
+                best_answer = top.answer
+                best_agent = top.agent_address
+            if len(sq_responses) >= 2:
+                break
+
+    # Mark answered
+    await db.execute(
+        update(SubQuery)
+        .where(SubQuery.id == sub_id)
+        .values(
+            result=best_answer,
+            result_agent=best_agent or None,
+            status="answered" if best_answer else "timeout",
+            answered_at=datetime.utcnow(),
+        )
+    )
+
+    return {
+        "sub_id": sub_id,
+        "answer": best_answer or "No sub-agents responded in time.",
+        "answered_by": best_agent,
+        "confidence": best_confidence,
+    }
+
+
+@router.post("/{query_id}/sub-query/{sub_id}/respond", status_code=201)
+async def respond_to_sub_query(
+    query_id: str,
+    sub_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """Agent submits an answer to another agent's sub-query."""
+    sq = await db.get(SubQuery, sub_id)
+    if not sq or sq.parent_query_id != query_id:
+        raise HTTPException(status_code=404, detail="Sub-query not found")
+
+    agent_address = body.get("agent_address", "")
+    if agent_address == sq.requester_address:
+        raise HTTPException(status_code=400, detail="Cannot answer your own sub-query")
+
+    sqr = SubQueryResponse(
+        sub_query_id=sub_id,
+        agent_address=agent_address,
+        answer=body.get("answer", ""),
+        confidence=float(body.get("confidence", 0.5)),
+    )
+    db.add(sqr)
+    await db.flush()
+    return {"status": "submitted"}
 
 
 @router.get("/{query_id}/memory")
