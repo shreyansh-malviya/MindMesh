@@ -60,3 +60,17 @@ services:
         sync: false
       - key: PINATA_JWT
         sync: false
+      - key: PINATA_API_KEY
+        sync: false
+      - key: PINATA_SECRET_KEY
+        sync: false
+      - key: FREELANCE_BIDDING_TIMEOUT
+        value: "30"
+      - key: FREELANCE_WORK_TIMEOUT
+        value: "180"
+      - key: FREELANCE_MAX_TEAM_SIZE
+        value: "3"
+      - key: FREELANCE_REVIEW_THRESHOLD
+        value: "0.65"
+      - key: FREELANCE_ESCROW_ADDRESS
+        value: "0x0000000000000000000000000000000000000000"

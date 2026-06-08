@@ -8,6 +8,7 @@ import "../src/DecisionLedger.sol";
 import "../src/AgentRegistry.sol";
 import "../src/QueryEscrow.sol";
 import "../src/ProposalEscrow.sol";
+import "../src/FreelanceEscrow.sol";
 
 contract DeployScript is Script {
     function run() external {
@@ -55,16 +56,25 @@ contract DeployScript is Script {
         );
         console.log("ProposalEscrow:", address(proposalEscrow));
 
-        // 7. Wire up contracts
+        // 7. FreelanceEscrow
+        FreelanceEscrow freelanceEscrow = new FreelanceEscrow(
+            address(reputationManager),
+            deployer
+        );
+        console.log("FreelanceEscrow:", address(freelanceEscrow));
+
+        // 8. Wire up contracts
         reputationManager.setEscrowContract(address(queryEscrow));
         reputationManager.addAuthorizedCaller(address(proposalEscrow));
-        console.log("ReputationManager: wired to QueryEscrow + ProposalEscrow");
+        reputationManager.addAuthorizedCaller(address(freelanceEscrow));
+        console.log("ReputationManager: wired to QueryEscrow + ProposalEscrow + FreelanceEscrow");
 
         decisionLedger.setEscrowContract(address(queryEscrow));
         stakeVault.setRegistryContract(address(agentRegistry));
 
         queryEscrow.setOrchestratorAddress(deployer);
         proposalEscrow.setOrchestrator(deployer);
+        // FreelanceEscrow orchestrator already set to deployer in constructor
         console.log("Orchestrator address set to deployer:", deployer);
 
         vm.stopBroadcast();
@@ -81,7 +91,8 @@ contract DeployScript is Script {
             '    "DecisionLedger": "', vm.toString(address(decisionLedger)), '",\n',
             '    "AgentRegistry": "', vm.toString(address(agentRegistry)), '",\n',
             '    "QueryEscrow": "', vm.toString(address(queryEscrow)), '",\n',
-            '    "ProposalEscrow": "', vm.toString(address(proposalEscrow)), '"\n',
+            '    "ProposalEscrow": "', vm.toString(address(proposalEscrow)), '",\n',
+            '    "FreelanceEscrow": "', vm.toString(address(freelanceEscrow)), '"\n',
             '  }\n',
             "}"
         ));

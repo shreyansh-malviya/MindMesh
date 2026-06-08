@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type Query, type Agent } from "@/lib/api";
+import { api, type Query, type Agent, type FreelanceTask } from "@/lib/api";
 import { BotAvatar, type BotState } from "@/components/BotAvatar";
 
 interface Stats {
@@ -19,24 +19,26 @@ const BOT_CYCLE: BotState[][] = [
 ];
 
 const BOTS = [
-  { name: "Alpha", role: "Claude 3.5" },
-  { name: "Beta",  role: "GPT-4o" },
-  { name: "Gamma", role: "Groq" },
+  { name: "Alpha", role: "Sonnet 4.6" },
+  { name: "Beta",  role: "GPT-4o-mini" },
+  { name: "Gamma", role: "Groq Llama" },
 ];
 
 export default function HomePage() {
   const [stats, setStats] = useState<Stats>({ total: 0, settled: 0, active: 0, agents: 0 });
+  const [freelanceTasks, setFreelanceTasks] = useState(0);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    Promise.all([api.getQueries({ limit: 100 }), api.getAgents()])
-      .then(([queries, agents]: [Query[], Agent[]]) => {
+    Promise.all([api.getQueries({ limit: 100 }), api.getAgents(), api.getFreelanceTasks({ limit: 100 })])
+      .then(([queries, agents, ftasks]: [Query[], Agent[], FreelanceTask[]]) => {
         setStats({
           total: queries.length,
           settled: queries.filter(q => q.status === "SETTLED").length,
           active: queries.filter(q => !["SETTLED", "FAILED"].includes(q.status)).length,
           agents: agents.filter(a => a.active).length,
         });
+        setFreelanceTasks(ftasks.length);
       })
       .catch(() => {});
 
@@ -71,17 +73,20 @@ export default function HomePage() {
                 Launch Dashboard →
               </Link>
               <Link href="/proposals" className="btn-hero-ghost">
-                View Proposals
+                Proposals
+              </Link>
+              <Link href="/freelance" className="btn-hero-ghost">
+                Freelance
               </Link>
             </div>
 
             {/* Inline stats */}
             <div className="home-stats-row">
               {[
-                { v: stats.total,   l: "Queries" },
-                { v: stats.settled, l: "Settled" },
-                { v: stats.active,  l: "Active" },
-                { v: stats.agents,  l: "Live agents" },
+                { v: stats.total,     l: "Queries" },
+                { v: stats.settled,   l: "Settled" },
+                { v: freelanceTasks,  l: "Freelance" },
+                { v: stats.agents,    l: "Live agents" },
               ].map(({ v, l }, i) => (
                 <>
                   {i > 0 && <div key={`div-${l}`} className="home-stat-divider" />}
@@ -133,28 +138,28 @@ export default function HomePage() {
       {/* ─── HOW IT WORKS ─── */}
       <section className="home-features">
         <div className="home-features-inner">
-          <div className="home-features-title">How it works</div>
+          <div className="home-features-title">Three tracks, one network</div>
           <div className="home-steps">
             {[
               {
                 n: "01",
-                title: "Submit a query",
-                desc: "Post a problem with an optional MON bounty. The orchestrator opens a proposal on-chain.",
+                title: "Query Track",
+                desc: "Post a question with a MON bounty. Agents compete, peer-score each other, and the LLM judge picks the winner.",
               },
               {
                 n: "02",
-                title: "Agents bid & form team",
-                desc: "Alpha (Claude), Beta (GPT-4o-mini), Gamma (Groq) bid for roles. Best match wins the slot.",
+                title: "Proposal Track",
+                desc: "Submit an idea — agents dynamically form an expert panel (CEO, CTO, Investor…), debate it in structured rounds, and synthesize a final report to IPFS.",
               },
               {
                 n: "03",
-                title: "Multi-agent discussion",
-                desc: "Agents collaborate across rounds, peer-reviewing and refining each other's responses.",
+                title: "Freelance Track",
+                desc: "Post real work. Agents self-assemble a delivery team, generate artifacts, and a review LLM grades the assembled output. Settle on-chain.",
               },
               {
                 n: "04",
-                title: "Settlement on-chain",
-                desc: "Top response scored by an LLM judge. Winner receives the bounty. Hash written to Monad.",
+                title: "Monad is the trust layer",
+                desc: "Every bid, team formation, deliverable hash, and payout is anchored on Monad. No central company controls the network.",
               },
             ].map(({ n, title, desc }) => (
               <div key={n} className="home-step">
@@ -193,7 +198,12 @@ cd packages/web && npm run dev
 # Submit a query
 curl -X POST http://localhost:8000/api/queries/ \\
   -H "Content-Type: application/json" \\
-  -d '{"problem":"Your question here","capabilities":["general"]}'`}
+  -d '{"problem":"Your question here","capabilities":["general"]}'
+
+# Post a freelance task
+curl -X POST http://localhost:8000/api/freelance/ \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Write a DeFi spec","description":"...","task_type":"document"}'`}
           </pre>
         </div>
       </section>

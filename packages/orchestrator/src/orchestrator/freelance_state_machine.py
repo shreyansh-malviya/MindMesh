@@ -171,7 +171,7 @@ class FreelanceStateMachine:
         """Record a delivered artifact — called by the /submit endpoint."""
         async with db_session() as session:
             task = await session.get(FreelanceTask, task_id)
-            if not task or task.status != FreelanceStatus.IN_PROGRESS:
+            if not task or task.status not in (FreelanceStatus.TEAM_FORMED, FreelanceStatus.IN_PROGRESS):
                 raise ValueError(f"Task {task_id} is not accepting artifacts (status={getattr(task, 'status', 'not found')})")
 
             # One artifact per agent per task
@@ -361,7 +361,7 @@ class FreelanceStateMachine:
             )
             try:
                 resp = await self._anthropic.messages.create(
-                    model="claude-3-5-haiku-20241022",
+                    model="claude-haiku-4-5-20251001",
                     max_tokens=4096,
                     system=ASSEMBLY_SYSTEM,
                     messages=[{"role": "user", "content": user_prompt}],
@@ -419,7 +419,7 @@ class FreelanceStateMachine:
         notes = "Review unavailable"
         try:
             resp = await self._anthropic.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=512,
                 system=REVIEW_SYSTEM,
                 messages=[{"role": "user", "content": user_prompt}],

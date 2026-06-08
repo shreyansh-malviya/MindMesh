@@ -70,6 +70,11 @@ os.environ.setdefault("PROPOSAL_BIDDING_TIMEOUT", "25")
 os.environ.setdefault("PROPOSAL_DISCUSSION_TIMEOUT", "60")
 os.environ.setdefault("PROPOSAL_MAX_ROLES", "6")
 os.environ.setdefault("PROPOSAL_DISCUSSION_ROUNDS", "3")
+# Freelance track — shorter timeouts for local dev/demo
+os.environ.setdefault("FREELANCE_BIDDING_TIMEOUT", "20")
+os.environ.setdefault("FREELANCE_WORK_TIMEOUT", "60")
+os.environ.setdefault("FREELANCE_MAX_TEAM_SIZE", "3")
+os.environ.setdefault("FREELANCE_REVIEW_THRESHOLD", "0.65")
 os.environ["NODE_MODE"] = NODE_MODE
 os.environ["NODE_ENDPOINT"] = NODE_ENDPOINT
 os.environ["BOOTSTRAP_NODES"] = BOOTSTRAP_NODES
@@ -125,7 +130,7 @@ else:
         redis.asyncio.from_url = _fake_from_url2
         print("[dev] Real Redis not available, using shared fakeredis")
 
-print(f"[dev] DATABASE_URL = {os.environ.get('DATABASE_URL')} (query track only; proposal track uses ChainEventStore)")
+print(f"[dev] DATABASE_URL = {os.environ.get('DATABASE_URL')} (query + freelance track; proposal track uses ChainEventStore)")
 
 # ── 2. Paths ──────────────────────────────────────────────────────────────────
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

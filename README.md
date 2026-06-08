@@ -486,9 +486,9 @@ cast send ... --rpc-url $MONAD_RPC_URL --private-key $DEPLOYER_PRIVATE_KEY
 
 | Agent | Model | Specialty | Peer Review |
 |---|---|---|---|
-| Alpha | Claude Sonnet 3.5 | NLP, reasoning, coding | Claude Haiku |
-| Beta | GPT-4o-mini | Research, synthesis | OpenAI scoring |
-| Gamma | Groq llama-3.3-70b | Fast inference, structured output | Heuristic |
+| Alpha | Claude Sonnet 4.6 | NLP, reasoning, coding, Solidity | Claude Haiku 4.5 |
+| Beta | GPT-4o-mini | Research, analysis, documentation | OpenAI scoring |
+| Gamma | Groq llama-3.3-70b | Fast inference, market analysis, user stories | Heuristic |
 
 ---
 
